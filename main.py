@@ -1,7 +1,7 @@
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from openai import OpenAI
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -9,7 +9,7 @@ import aiohttp
 
 # Вставьте свои ключи здесь напрямую
 BOT_TOKEN = "7847598451:AAH8B9-S2QPOznckDlKJZSoSpDs1SLphQ34"
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "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"
 TMDB_API_KEY = "941d2663b8c7da9e88d80d9ac8e48105"
 
 # Настройка логирования
@@ -30,16 +30,28 @@ scheduler = AsyncIOScheduler()
 user_ids = set()
 user_language = {}
 
-# Клавиатура
+# Клавиатура главного меню
 main_kb = ReplyKeyboardMarkup(keyboard=[
-    [KeyboardButton(text="🎬 Фильм дня"), KeyboardButton(text="⚙️ Настройки")]
+    [KeyboardButton(text="🎬 Фильм дня")],
+    [KeyboardButton(text="📚 Жанры"), KeyboardButton(text="💡 Подсказки")],
+    [KeyboardButton(text="⚙️ Настройки")]
 ], resize_keyboard=True)
+
+# Inline-кнопки для жанров
+genres_kb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🎭 Драма", callback_data="genre_драма"),
+     InlineKeyboardButton(text="😂 Комедия", callback_data="genre_комедия")],
+    [InlineKeyboardButton(text="🎢 Триллер", callback_data="genre_триллер"),
+     InlineKeyboardButton(text="💥 Боевик", callback_data="genre_боевик")],
+    [InlineKeyboardButton(text="💘 Романтика", callback_data="genre_романтика"),
+     InlineKeyboardButton(text="🎥 Аниме", callback_data="genre_аниме")]
+])
 
 # Функция получения рекомендаций от OpenRouter (GPT)
 async def get_movie_recommendation(query: str):
     prompt = f"""
     Ты — эксперт по фильмам, сериалам и аниме. Пользователь пишет: '{query}'.
-    Подбери актуальный фильм,сериал или аниме по запросу пользователя и интересные тайтла с краткими описаниями. Формат:
+    Подбери актуальный фильм, сериал или аниме по запросу пользователя и интересные тайтлы с краткими описаниями. Формат:
     1. НАЗВАНИЕ (год) - Краткое описание.
     """
     try:
@@ -72,25 +84,42 @@ async def start_handler(message: types.Message):
     user_ids.add(message.from_user.id)
     user_language[message.from_user.id] = "ru"
     await message.answer(
-        "👋 Привет! Я ScreenFox — подбираю фильмы, сериалы и аниме. Просто напиши тему или жанр.\n\n"
-        "Например:\n- триллер с неожиданной концовкой\n- романтическое аниме\n- сериал как Во все тяжкие",
+        "👋 Привет! Я ScreenFox — подбираю фильмы, сериалы и аниме. Просто напиши тему или жанр или выбери из меню:",
         reply_markup=main_kb
     )
 
-# Обработка команды /movie или кнопки "Фильм дня"
+# Фильм дня
 @dp.message(F.text.lower() == "🎬 фильм дня")
-@dp.message(Command("movie"))
 async def movie_of_the_day(message: types.Message):
     await message.answer("🎬 Выбираю фильм дня...")
     result = await get_tmdb_trending_movie()
     await message.answer(f"🍿 Фильм дня:\n\n{result}")
 
-# Обработка кнопки "Настройки"
+# Подсказки
+@dp.message(F.text.lower() == "💡 подсказки")
+async def tips_handler(message: types.Message):
+    await message.answer("💡 Примеры запросов:\n- триллер с неожиданной концовкой\n- комедия 2020-х годов\n- сериал как Во все тяжкие\n- романтическое аниме")
+
+# Жанры
+@dp.message(F.text.lower() == "📚 жанры")
+async def genre_menu(message: types.Message):
+    await message.answer("📚 Выбери жанр, и я подберу что-то интересное:", reply_markup=genres_kb)
+
+# Inline callback по жанрам
+@dp.callback_query()
+async def genre_callback(callback: types.CallbackQuery):
+    genre = callback.data.replace("genre_", "")
+    await callback.message.answer(f"🔍 Ищу что-то в жанре: {genre}...")
+    result = await get_movie_recommendation(f"Фильмы в жанре {genre}")
+    await callback.message.answer(result)
+    await callback.answer()
+
+# Настройки
 @dp.message(F.text.lower() == "⚙️ настройки")
 async def settings_handler(message: types.Message):
-    await message.answer("⚙️ Здесь вы можете настроить язык (в будущем) и подписку на \"Фильм дня\". Пока доступна только локализация на русский язык. Напишите 'отписаться', чтобы не получать фильм дня.")
+    await message.answer("⚙️ Настройки будут доступны позже. Сейчас доступна только локализация на русский язык. Чтобы отключить \"Фильм дня\" — напиши 'отписаться'.")
 
-# Ответ на обычный текст — через ИИ
+# Обычный текст
 @dp.message(F.text)
 async def query_handler(message: types.Message):
     user_ids.add(message.from_user.id)
@@ -98,19 +127,19 @@ async def query_handler(message: types.Message):
     result = await get_movie_recommendation(message.text)
     await message.answer(f"📽 Рекомендации:\n\n{result}")
 
-# Плановая рассылка "Фильма дня" через TMDB
+# Рассылка фильма дня
 async def send_daily_recommendation():
     if user_ids:
         text = await get_tmdb_trending_movie()
         for uid in user_ids:
             try:
-                await bot.send_message(uid, f"🌅 Доброе утро! Вот фильм дня от ScreenFox:\n\n{text}")
+                await bot.send_message(uid,f"🌅 Доброе утро! Вот фильм дня от ScreenFox:\n\n{text}")
             except Exception as e:
                 logging.warning(f"Не удалось отправить сообщение {uid}: {e}")
 
 # Запуск
 async def main():
-    scheduler.add_job(send_daily_recommendation, trigger='cron', hour=9, minute=0)  # каждый день в 9:00
+    scheduler.add_job(send_daily_recommendation, trigger='cron', hour=9, minute=0)
     scheduler.start()
     print("✅ ScreenFox запущен!")
     await dp.start_polling(bot)
