@@ -2,10 +2,13 @@ import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
 from openai import OpenAI
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import aiohttp
+from movie_guessing_game import register_handlers_guess_movie
 
 BOT_TOKEN = "7847598451:AAH8B9-S2QPOznckDlKJZSoSpDs1SLphQ34"
 OPENROUTER_API_KEY = "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"
@@ -19,6 +22,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 scheduler = AsyncIOScheduler()
 
+user_states = {} 
 user_ids = set()
 user_language = {}
 user_subscriptions = set()
@@ -26,11 +30,16 @@ user_history = {}
 user_favorites = {}
 user_reactions = {}
 
+class UserStates(StatesGroup):
+    AIChat = State()
+    Tips = State()
+
 main_kb = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="🎬 Фильм дня")],
     [KeyboardButton(text="📚 Жанры"), KeyboardButton(text="💡 Подсказки")],
     [KeyboardButton(text="🎞 История запросов"), KeyboardButton(text="⭐ Избранное")],
     [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="🧠 ИИ-чат")],
+    [KeyboardButton(text="🎮 Угадай фильм")],  # Добавляем кнопку для игры
     [KeyboardButton(text="⚙️ Настройки")]
 ], resize_keyboard=True)
 
@@ -90,7 +99,7 @@ async def get_tmdb_trending_movie():
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
     user_ids.add(message.from_user.id)
-    await message.answer("👋 Привет! Я ScreenFox. Напиши тему или выбери пункт меню:", reply_markup=main_kb)
+    await message.answer("👋 Привет! Я ScreenFox. Выбери пункт из меню:", reply_markup=main_kb)
 
 @dp.message(F.text.lower() == "🎬 фильм дня")
 async def movie_of_the_day(message: types.Message):
@@ -100,8 +109,16 @@ async def movie_of_the_day(message: types.Message):
     await message.answer(result, reply_markup=reaction_kb)
 
 @dp.message(F.text.lower() == "💡 подсказки")
-async def tips_handler(message: types.Message):
+async def tips_handler(message: types.Message, state: FSMContext):
     await message.answer("💡 Примеры запросов:\n- комедия 2020-х\n- боевик как Джон Уик\n- романтическое аниме", reply_markup=back_kb)
+    await state.set_state(UserStates.Tips)  # Устанавливаем состояние
+
+@dp.message(UserStates.Tips)
+async def handle_tips(message: types.Message, state: FSMContext):
+    await message.answer("🔎 Ищу рекомендации...")
+    result = await get_movie_recommendation(message.text)
+    await message.answer(result)
+    await state.clear()  # Сбрасываем состояние после обработки
 
 @dp.message(F.text.lower() == "📚 жанры")
 async def genre_menu(message: types.Message):
@@ -160,8 +177,16 @@ async def stats_handler(message: types.Message):
     await message.answer(f"📊 Ваша статистика:\n👍 Лайков: {reactions['like']}\n👎 Дизлайков: {reactions['dislike']}\n⭐ Избранное: {favs}")
 
 @dp.message(F.text.lower() == "🧠 ии-чат")
-async def ai_chat_prompt(message: types.Message):
+async def ai_chat_prompt(message: types.Message, state: FSMContext):
     await message.answer("🧠 Введите ваш вопрос к ИИ-эксперту по фильмам:")
+    await state.set_state(UserStates.AIChat)  # Устанавливаем состояние
+
+@dp.message(UserStates.AIChat)
+async def handle_ai_chat(message: types.Message, state: FSMContext):
+    await message.answer("🔎 Ищу ответ от ИИ...")
+    result = await get_movie_recommendation(message.text)
+    await message.answer(result)
+    await state.clear()  # Сбрасываем состояние после обработки
 
 @dp.callback_query(F.data == "like")
 async def like_handler(callback: types.CallbackQuery):
@@ -179,14 +204,6 @@ async def favorite_handler(callback: types.CallbackQuery):
     user_favorites.setdefault(callback.from_user.id, []).append(message_text)
     await callback.answer("💾 Добавлено в избранное!")
 
-@dp.message(F.text)
-async def query_handler(message: types.Message):
-    user_ids.add(message.from_user.id)
-    user_history.setdefault(message.from_user.id, []).append(message.text)
-    await message.answer("🔎 Ищу подборку...")
-    result = await get_movie_recommendation(message.text)
-    await message.answer(f"📽 Рекомендации:\n\n{result}", reply_markup=reaction_kb)
-
 async def send_daily_recommendation():
     if user_subscriptions:
         text, title = await get_tmdb_trending_movie()
@@ -198,6 +215,7 @@ async def send_daily_recommendation():
                 logging.warning(f"Не удалось отправить сообщение {uid}: {e}")
 
 async def main():
+    register_handlers_guess_movie(dp, user_states, user_history) 
     scheduler.add_job(send_daily_recommendation, trigger='cron', hour=9, minute=0)
     scheduler.start()
     print("✅ ScreenFox запущен!")
