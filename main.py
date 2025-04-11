@@ -8,7 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import aiohttp
 
 BOT_TOKEN = "7847598451:AAH8B9-S2QPOznckDlKJZSoSpDs1SLphQ34"
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "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"
 TMDB_API_KEY = "941d2663b8c7da9e88d80d9ac8e48105"
 
 logging.basicConfig(level=logging.INFO)
@@ -60,7 +60,12 @@ reaction_kb = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 async def get_movie_recommendation(query: str):
-    prompt = f"Ты — эксперт по фильмам, сериалам и аниме. Пользователь пишет: '{query}'. Подбери актуальные тайтлы."
+    lowered = query.lower()
+    one_film_request = any(keyword in lowered for keyword in ["один фильм", "1 фильм", "что-то одно", "какой фильм", "в каком фильме", "что за фильм", "название фильма"])
+    if one_film_request:
+        prompt = f"Пользователь ищет КОНКРЕТНЫЙ фильм по описанию или сцене. Ответь НАЗВАНИЕМ одного фильма, который максимально соответствует описанию: '{query}'. Не добавляй список, не предлагай несколько вариантов."
+    else:
+        prompt = f"Ты — эксперт по фильмам. Пользователь просит: '{query}'. Дай актуальные рекомендации."
     try:
         completion = client.chat.completions.create(
             model="openai/gpt-3.5-turbo",
@@ -71,7 +76,7 @@ async def get_movie_recommendation(query: str):
     except Exception as e:
         logging.error(f"Ошибка: {e}")
         return f"😔 Произошла ошибка: {e}"
-
+    
 async def get_tmdb_trending_movie():
     url = f"https://api.themoviedb.org/3/trending/movie/day?api_key={TMDB_API_KEY}&language=ru-RU"
     async with aiohttp.ClientSession() as session:
