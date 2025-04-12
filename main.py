@@ -9,6 +9,7 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import aiohttp
 from movie_guessing_game import register_handlers_guess_movie
+from watch_later import router as watch_later_router
 
 BOT_TOKEN = "7847598451:AAH8B9-S2QPOznckDlKJZSoSpDs1SLphQ34"
 OPENROUTER_API_KEY = "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"
@@ -39,7 +40,7 @@ main_kb = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="📚 Жанры"), KeyboardButton(text="💡 Подсказки")],
     [KeyboardButton(text="🎞 История запросов"), KeyboardButton(text="⭐ Избранное")],
     [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="🧠 ИИ-чат")],
-    [KeyboardButton(text="🎮 Угадай фильм")],  # Добавляем кнопку для игры
+    [KeyboardButton(text="🎮 Угадай фильм"), KeyboardButton(text="📋 Смотреть позже")],
     [KeyboardButton(text="⚙️ Настройки")]
 ], resize_keyboard=True)
 
@@ -215,6 +216,7 @@ async def send_daily_recommendation():
                 logging.warning(f"Не удалось отправить сообщение {uid}: {e}")
 
 async def main():
+    dp.include_router(watch_later_router)
     register_handlers_guess_movie(dp, user_states, user_history) 
     scheduler.add_job(send_daily_recommendation, trigger='cron', hour=9, minute=0)
     scheduler.start()

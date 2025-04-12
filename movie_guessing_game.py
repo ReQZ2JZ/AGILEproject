@@ -6,10 +6,25 @@ router = Router()
 
 movies_with_emojis = [
     {"title": "Король Лев", "emoji": "🦁👑🌅"},
-    {"title": "Титаник", "emoji": "🚢❄️💔"},
-    {"title": "Матрица", "emoji": "💻🕶️🔫"},
-    {"title": "Гарри Поттер", "emoji": "⚡🧙‍♂️🦉"},
-    {"title": "Человек-паук", "emoji": "🕷️🕸️🦸‍♂️"},
+    {"title": "Гарри Поттер", "emoji": "⚡🧙‍♂️🦉🏰"},
+    {"title": "Человек-Паук", "emoji": "🕷️🕸️🦸‍♂️🌆"},
+    {"title": "Люди в черном", "emoji": "🕶️👽🔫🚗🌌"},
+    {"title": "Планета обезьян", "emoji": "🦍🌍⚔️🧬"},
+    {"title": "Хитмэн", "emoji": "🧑‍🦲🔫🎯💼"},
+    {"title": "Моана", "emoji": "🌊⛵🐷🐓💪🌺"},
+    {"title": "Бременские музыканты", "emoji": "🎶🐴🐶🐱🦜"},
+    {"title": "Бэтмен", "emoji": "🦇🌃🚨⚔️😈"},
+    {"title": "Голодные игры", "emoji": "🏹🔥🏟️💪🕊️"},
+    {"title": "Росомаха", "emoji": "🦁🔪🔪🔪💪🩺"},
+    {"title": "Плохие парни", "emoji": "🚓🔫😎😎💥"},
+    {"title": "Чаки", "emoji": "👶🔪😱👿"},
+    {"title": "Мадагаскар", "emoji": "🦒🦁🦓🌴🚢"},
+    {"title": "Шрек", "emoji": "🧟‍♂️👸🐴🏰💚"},
+    {"title": "Вилли Вонка", "emoji": "🍫🎩🏭🍬✨"},
+    {"title": "Элементарно", "emoji": "🔥💧🌬️🌍💞"},
+    {"title": "Шерлок Холмс", "emoji": "🕵️‍♂️🔍🎻💡"},
+    {"title": "Соник", "emoji": "🦔💨⚡🌍🏃"},
+    {"title": "Как приручить дракона", "emoji": "🐉🧑🔥🛡️"}
 ]
 
 def get_random_movie():
@@ -19,8 +34,8 @@ def register_handlers_guess_movie(dp, user_states, user_history):
     @router.message(lambda message: message.text.lower() == "🎮 угадай фильм")
     async def start_guess_movie(message: types.Message):
         random_movie = get_random_movie()
-        user_states[message.from_user.id] = "guess_movie"  # Устанавливаем состояние для игры
-        user_history[message.from_user.id] = random_movie  # Сохраняем текущий фильм для пользователя
+        user_states[message.from_user.id] = "guess_movie" 
+        user_history[message.from_user.id] = random_movie  
         await message.answer(
             f"🎲 Угадайте фильм по эмодзи: {random_movie['emoji']}\nНапишите ваш ответ:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -39,8 +54,8 @@ def register_handlers_guess_movie(dp, user_states, user_history):
                     [InlineKeyboardButton(text="🎮 Играть дальше", callback_data="play_again")]
                 ])
             )
-            user_states.pop(message.from_user.id, None)  # Удаляем состояние
-            user_history.pop(message.from_user.id, None)  # Удаляем текущий фильм из истории
+            user_states.pop(message.from_user.id, None) 
+            user_history.pop(message.from_user.id, None)
         else:
             await message.answer(
                 "❌ Неправильно. Попробуйте еще раз или узнайте правильный ответ.",
@@ -64,15 +79,15 @@ def register_handlers_guess_movie(dp, user_states, user_history):
                 [InlineKeyboardButton(text="🎮 Играть дальше", callback_data="play_again")]
             ])
         )
-        user_states.pop(callback.from_user.id, None)  # Удаляем состояние
-        user_history.pop(callback.from_user.id, None)  # Удаляем текущий фильм из истории
+        user_states.pop(callback.from_user.id, None) 
+        user_history.pop(callback.from_user.id, None) 
         await callback.answer()
 
     @router.callback_query(lambda c: c.data == "play_again")
     async def play_again(callback: types.CallbackQuery):
         random_movie = get_random_movie()
-        user_states[callback.from_user.id] = "guess_movie"  # Устанавливаем состояние для игры
-        user_history[callback.from_user.id] = random_movie  # Сохраняем новый фильм для пользователя
+        user_states[callback.from_user.id] = "guess_movie"
+        user_history[callback.from_user.id] = random_movie 
         await callback.message.answer(
             f"🎲 Угадайте фильм по эмодзи: {random_movie['emoji']}\nНапишите ваш ответ:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -83,7 +98,7 @@ def register_handlers_guess_movie(dp, user_states, user_history):
 
     @router.callback_query(lambda c: c.data == "go_home")
     async def go_home(callback: types.CallbackQuery):
-        from main import main_kb  # Локальный импорт, чтобы избежать циклического импорта
+        from main import main_kb 
         await callback.message.answer("🏠 Главное меню:", reply_markup=main_kb)
         await callback.answer()
 
