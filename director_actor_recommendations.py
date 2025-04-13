@@ -15,16 +15,18 @@ reaction_kb = types.InlineKeyboardMarkup(inline_keyboard=[
     [types.InlineKeyboardButton(text="💾 В избранное", callback_data="add_favorite")]
 ])
 
-class ThematicStates(StatesGroup):
-    WaitingForQuery = State()
+class DirectorActorStates(StatesGroup):
+    WaitingForName = State()
 
-async def generate_thematic_collection(query: str) -> str:
+async def generate_director_actor_recommendations(name: str) -> str:
     prompt = (
-        f"Ты — эксперт по фильмам. Пользователь просит тематическую подборку: '{query}'. "
-        "Составь список из 3-5 фильмов, соответствующих запросу. "
+        f"Ты — эксперт по фильмам. Пользователь указал имя: '{name}'. "
+        "Определи, является ли это имя режиссером или актером, и составь список из 3-5 фильмов, "
+        "где этот человек играл ключевую роль (как режиссер или актер). "
         "Для каждого фильма укажи: название, год выпуска, краткое описание (2-3 предложения), "
-        "почему он подходит под запрос. Форматируй ответ так:\n\n"
-        "**Название (Год)**\nОписание: ...\nПодходит, потому что: ...\n\n"
+        "роль человека (режиссер или актер). Форматируй ответ так:\n\n"
+        "**Название (Год)**\nОписание: ...\nРоль: ...\n\n"
+        "Если имя неоднозначное, выбери наиболее вероятный вариант. "
         "Не используй нумерацию, только указанный формат."
     )
     try:
@@ -35,29 +37,29 @@ async def generate_thematic_collection(query: str) -> str:
         )
         response = completion.choices[0].message.content.strip()
         if not response or "не найдено" in response.lower():
-            return "😔 Не удалось найти подходящие фильмы. Попробуйте другой запрос!"
+            return f"😔 Не удалось найти фильмы для '{name}'. Проверьте правильность имени или попробуйте другое!"
         response = re.sub(r'^\d+\.\s*', '', response, flags=re.MULTILINE)
         return response
     except Exception as e:
-        logging.error(f"Ошибка при генерации подборки: {e}")
+        logging.error(f"Ошибка при генерации рекомендаций для '{name}': {e}")
         return f"😔 Произошла ошибка: {e}"
 
-@router.message(F.text.lower() == "🎨 тематические подборки")
-async def thematic_collections_start(message: types.Message, state: FSMContext):
-    logging.info(f"Пользователь {message.from_user.id} начал 'Тематические подборки'")
+@router.message(F.text.lower() == "🎭 режиссер/актер")
+async def director_actor_start(message: types.Message, state: FSMContext):
+    logging.info(f"Пользователь {message.from_user.id} начал 'Режиссер/Актер'")
     await state.clear()
     await message.answer(
-        "🎨 Введите запрос для тематической подборки (например, 'фильмы с неожиданным финалом' или 'атмосферные триллеры'):",
+        "🎭 Введите имя режиссера или актера (например, 'Кристофер Нолан' или 'Леонардо ДиКаприо'):",
         reply_markup=types.ReplyKeyboardMarkup(
             keyboard=[[types.KeyboardButton(text="🔙 Назад")]],
             resize_keyboard=True
         )
     )
-    await state.set_state(ThematicStates.WaitingForQuery)
+    await state.set_state(DirectorActorStates.WaitingForName)
 
-@router.message(ThematicStates.WaitingForQuery)
-async def process_thematic_query(message: types.Message, state: FSMContext, user_history: dict):
-    logging.info(f"Пользователь {message.from_user.id} ввел запрос: {message.text}")
+@router.message(DirectorActorStates.WaitingForName)
+async def process_director_actor_name(message: types.Message, state: FSMContext, user_history: dict):
+    logging.info(f"Пользователь {message.from_user.id} ввел имя: {message.text}")
     if message.text.lower() == "🔙 назад":
         await message.answer("🏠 Главное меню:", reply_markup=types.ReplyKeyboardMarkup(
             keyboard=[
@@ -74,11 +76,11 @@ async def process_thematic_query(message: types.Message, state: FSMContext, user
         await state.clear()
         return
 
-    await message.answer("🔎 Формирую подборку...")
-    result = await generate_thematic_collection(message.text)
-    user_history.setdefault(message.from_user.id, []).append(f"Тематическая подборка: {message.text}")
+    await message.answer(f"🔎 Ищу фильмы с '{message.text}'...")
+    result = await generate_director_actor_recommendations(message.text)
+    user_history.setdefault(message.from_user.id, []).append(f"Режиссер/Актер: {message.text}")
     await message.answer(result, reply_markup=reaction_kb)
     await state.clear()
 
-def register_handlers_thematic(dp):
+def register_handlers_director_actor(dp):
     dp.include_router(router)

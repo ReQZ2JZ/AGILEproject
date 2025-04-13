@@ -1,5 +1,5 @@
 import asyncio
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.state import StatesGroup, State
@@ -10,7 +10,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import aiohttp
 from movie_guessing_game import register_handlers_guess_movie
 from watch_later import router as watch_later_router
-from thematic_collections import router as thematic_collections_router
+from thematic_collections import register_handlers_thematic
+from director_actor_recommendations import register_handlers_director_actor
+from typing import Callable, Dict, Any, Awaitable
 
 BOT_TOKEN = "7847598451:AAH8B9-S2QPOznckDlKJZSoSpDs1SLphQ34"
 OPENROUTER_API_KEY = "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"
@@ -32,6 +34,22 @@ user_history = {}
 user_favorites = {}
 user_reactions = {}
 
+# Middleware для передачи user_history
+class UserHistoryMiddleware(BaseMiddleware):
+    def __init__(self, user_history: dict):
+        self.user_history = user_history
+        super().__init__()
+
+    async def __call__(
+        self,
+        handler: Callable[[types.Message, Dict[str, Any]], Awaitable[Any]],
+        event: types.Message,
+        data: Dict[str, Any]
+    ) -> Any:
+        logging.info(f"Middleware called for user {event.from_user.id}")
+        data['user_history'] = self.user_history
+        return await handler(event, data)
+
 class UserStates(StatesGroup):
     AIChat = State()
     Tips = State()
@@ -39,12 +57,12 @@ class UserStates(StatesGroup):
 main_kb = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="🎬 Фильм дня")],
     [KeyboardButton(text="📚 Жанры"), KeyboardButton(text="💡 Подсказки")],
-    [KeyboardButton(text="📽 Тематические подборки")],
     [KeyboardButton(text="🎞 История запросов"), KeyboardButton(text="⭐ Избранное")],
     [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="🧠 ИИ-чат")],
     [KeyboardButton(text="🎮 Угадай фильм"), KeyboardButton(text="📋 Смотреть позже")],
+    [KeyboardButton(text="🎨 Тематические подборки"), KeyboardButton(text="🎭 Режиссер/Актер")],
     [KeyboardButton(text="⚙️ Настройки")]
-], resize_keyboard=True)    
+], resize_keyboard=True)
 
 back_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🔙 Назад")]], resize_keyboard=True)
 
@@ -100,12 +118,14 @@ async def get_tmdb_trending_movie():
             return "😔 Не удалось получить фильм дня.", None
 
 @dp.message(CommandStart())
-async def start_handler(message: types.Message):
+async def start_handler(message: types.Message, state: FSMContext):
+    await state.clear()
     user_ids.add(message.from_user.id)
     await message.answer("👋 Привет! Я ScreenFox. Выбери пункт из меню:", reply_markup=main_kb)
 
 @dp.message(F.text.lower() == "🎬 фильм дня")
-async def movie_of_the_day(message: types.Message):
+async def movie_of_the_day(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer("🎬 Ищу фильм дня...")
     result, title = await get_tmdb_trending_movie()
     user_history.setdefault(message.from_user.id, []).append(title)
@@ -113,18 +133,20 @@ async def movie_of_the_day(message: types.Message):
 
 @dp.message(F.text.lower() == "💡 подсказки")
 async def tips_handler(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer("💡 Примеры запросов:\n- комедия 2020-х\n- боевик как Джон Уик\n- романтическое аниме", reply_markup=back_kb)
-    await state.set_state(UserStates.Tips)  # Устанавливаем состояние
+    await state.set_state(UserStates.Tips)
 
 @dp.message(UserStates.Tips)
 async def handle_tips(message: types.Message, state: FSMContext):
     await message.answer("🔎 Ищу рекомендации...")
     result = await get_movie_recommendation(message.text)
     await message.answer(result)
-    await state.clear()  # Сбрасываем состояние после обработки
+    await state.clear()
 
 @dp.message(F.text.lower() == "📚 жанры")
-async def genre_menu(message: types.Message):
+async def genre_menu(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer("📚 Выбери жанр:", reply_markup=genres_kb)
 
 @dp.callback_query(F.data.startswith("genre_"))
@@ -137,7 +159,8 @@ async def genre_callback(callback: types.CallbackQuery):
     await callback.answer()
 
 @dp.message(F.text.lower() == "⚙️ настройки")
-async def settings_handler(message: types.Message):
+async def settings_handler(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer("⚙️ Настройки:", reply_markup=settings_kb)
 
 @dp.callback_query(F.data == "subscribe")
@@ -158,38 +181,43 @@ async def go_home_callback(callback: types.CallbackQuery):
     await callback.answer()
 
 @dp.message(F.text.lower() == "🔙 назад")
-async def back_handler(message: types.Message):
+async def back_handler(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer("🏠 Главное меню:", reply_markup=main_kb)
 
 @dp.message(F.text.lower() == "🎞 история запросов")
-async def history_handler(message: types.Message):
+async def history_handler(message: types.Message, state: FSMContext):
+    await state.clear()
     history = user_history.get(message.from_user.id, [])
     text = "\n".join(history[-10:]) if history else "История пуста."
     await message.answer(f"📜 История запросов:\n{text}")
 
 @dp.message(F.text.lower() == "⭐ избранное")
-async def favorites_handler(message: types.Message):
+async def favorites_handler(message: types.Message, state: FSMContext):
+    await state.clear()
     favorites = user_favorites.get(message.from_user.id, [])
     text = "\n".join(favorites) if favorites else "⭐ Ваш список избранного пуст."
     await message.answer(text)
 
 @dp.message(F.text.lower() == "📊 статистика")
-async def stats_handler(message: types.Message):
+async def stats_handler(message: types.Message, state: FSMContext):
+    await state.clear()
     reactions = user_reactions.get(message.from_user.id, {"like": 0, "dislike": 0})
     favs = len(user_favorites.get(message.from_user.id, []))
     await message.answer(f"📊 Ваша статистика:\n👍 Лайков: {reactions['like']}\n👎 Дизлайков: {reactions['dislike']}\n⭐ Избранное: {favs}")
 
 @dp.message(F.text.lower() == "🧠 ии-чат")
 async def ai_chat_prompt(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer("🧠 Введите ваш вопрос к ИИ-эксперту по фильмам:")
-    await state.set_state(UserStates.AIChat)  # Устанавливаем состояние
+    await state.set_state(UserStates.AIChat)
 
 @dp.message(UserStates.AIChat)
 async def handle_ai_chat(message: types.Message, state: FSMContext):
     await message.answer("🔎 Ищу ответ от ИИ...")
     result = await get_movie_recommendation(message.text)
     await message.answer(result)
-    await state.clear()  # Сбрасываем состояние после обработки
+    await state.clear()
 
 @dp.callback_query(F.data == "like")
 async def like_handler(callback: types.CallbackQuery):
@@ -218,8 +246,11 @@ async def send_daily_recommendation():
                 logging.warning(f"Не удалось отправить сообщение {uid}: {e}")
 
 async def main():
+    dp.message.middleware(UserHistoryMiddleware(user_history))
     dp.include_router(watch_later_router)
-    register_handlers_guess_movie(dp, user_states, user_history) 
+    # register_handlers_guess_movie(dp, user_states, user_history)  # Временно отключено
+    register_handlers_thematic(dp)
+    register_handlers_director_actor(dp)
     scheduler.add_job(send_daily_recommendation, trigger='cron', hour=9, minute=0)
     scheduler.start()
     print("✅ ScreenFox запущен!")
