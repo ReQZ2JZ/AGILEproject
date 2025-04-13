@@ -31,6 +31,7 @@ async def company_callback(callback: types.CallbackQuery, user_history: Dict[int
     
     await callback.message.answer(f"🔍 Ищу фильмы для компании: {query}")
     try:
+        # Вызов функции для получения рекомендаций
         result = await get_movie_recommendation(query)
         if not isinstance(user_history.get(callback.from_user.id), list):
             user_history[callback.from_user.id] = []
@@ -40,7 +41,8 @@ async def company_callback(callback: types.CallbackQuery, user_history: Dict[int
         logging.error(f"Ошибка в обработчике company_callback: {e}")
         await callback.message.answer("😔 Произошла ошибка при обработке запроса.")
     finally:
-        await callback.answer()  # Завершение callback
+        # Завершение callback
+        await callback.answer()
 
 # Регистрация обработчиков
 def register_handlers_company(dp: Dispatcher, user_history: Dict[int, list], get_movie_recommendation):

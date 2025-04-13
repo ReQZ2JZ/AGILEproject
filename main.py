@@ -13,6 +13,7 @@ from watch_later import router as watch_later_router
 from thematic_collections import register_handlers_thematic
 from director_actor_recommendations import register_handlers_director_actor
 from company_recommendations import register_handlers_company
+from movie_description import register_handlers_movie_description
 from typing import Callable, Dict, Any, Awaitable
 
 # Настройка логирования
@@ -69,7 +70,8 @@ main_kb = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="🧠 ИИ-чат")],
     [KeyboardButton(text="🎮 Угадай фильм"), KeyboardButton(text="📋 Смотреть позже")],
     [KeyboardButton(text="🎨 Тематические подборки"), KeyboardButton(text="🎭 Режиссер/Актер")],
-    [KeyboardButton(text="👥 Рекомендации по компании"), KeyboardButton(text="⚙️ Настройки")]
+    [KeyboardButton(text="👥 Рекомендации по компании"), KeyboardButton(text="🎥 Описание фильма одной фразой")],
+    [KeyboardButton(text="⚙️ Настройки")]
 ], resize_keyboard=True)
 
 back_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🔙 Назад")]], resize_keyboard=True)
@@ -99,12 +101,7 @@ reaction_kb = InlineKeyboardMarkup(inline_keyboard=[
 
 # Функция для получения рекомендации от ИИ
 async def get_movie_recommendation(query: str):
-    lowered = query.lower()
-    one_film_request = any(keyword in lowered for keyword in ["один фильм", "1 фильм", "что-то одно", "какой фильм", "в каком фильме", "что за фильм", "название фильма"])
-    if one_film_request:
-        prompt = f"Пользователь ищет КОНКРЕТНЫЙ фильм по описанию или сцене. Ответь НАЗВАНИЕМ одного фильма, который максимально соответствует описанию: '{query}'. Не добавляй список, не предлагай несколько вариантов."
-    else:
-        prompt = f"Ты — эксперт по фильмам. Пользователь просит: '{query}'. Дай актуальные рекомендации."
+    prompt = f"Опиши фильм '{query}' одной фразой."
     try:
         logging.info(f"Отправка запроса к OpenRouter API: {query}")
         completion = client.chat.completions.create(
@@ -115,7 +112,7 @@ async def get_movie_recommendation(query: str):
         return completion.choices[0].message.content
     except Exception as e:
         logging.error(f"Ошибка при запросе к OpenRouter: {e}")
-        return "😔 Произошла ошибка при получении рекомендаций."
+        return None
 
 # Функция для получения фильма дня от TMDB
 async def get_tmdb_trending_movie():
@@ -311,7 +308,8 @@ async def main():
     register_handlers_guess_movie(dp, user_states, user_history)
     register_handlers_thematic(dp)
     register_handlers_director_actor(dp)
-    register_handlers_company(dp, user_history, get_movie_recommendation)  # Регистрация обработчиков компании
+    register_handlers_company(dp, user_history, get_movie_recommendation)
+    register_handlers_movie_description(dp, get_movie_recommendation)  # Регистрация обработчиков описания фильма
     scheduler.add_job(send_daily_recommendation, trigger='cron', hour=9, minute=0)
     scheduler.start()
     logging.info("✅ ScreenFox запущен!")
