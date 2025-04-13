@@ -12,6 +12,7 @@ from movie_guessing_game import register_handlers_guess_movie
 from watch_later import router as watch_later_router
 from thematic_collections import register_handlers_thematic
 from director_actor_recommendations import register_handlers_director_actor
+from company_recommendations import register_handlers_company
 from typing import Callable, Dict, Any, Awaitable
 
 # Настройка логирования
@@ -68,7 +69,7 @@ main_kb = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="🧠 ИИ-чат")],
     [KeyboardButton(text="🎮 Угадай фильм"), KeyboardButton(text="📋 Смотреть позже")],
     [KeyboardButton(text="🎨 Тематические подборки"), KeyboardButton(text="🎭 Режиссер/Актер")],
-    [KeyboardButton(text="⚙️ Настройки")]
+    [KeyboardButton(text="👥 Рекомендации по компании"), KeyboardButton(text="⚙️ Настройки")]
 ], resize_keyboard=True)
 
 back_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🔙 Назад")]], resize_keyboard=True)
@@ -114,7 +115,7 @@ async def get_movie_recommendation(query: str):
         return completion.choices[0].message.content
     except Exception as e:
         logging.error(f"Ошибка при запросе к OpenRouter: {e}")
-        return f"😔 Произошла ошибка: {e}"
+        return "😔 Произошла ошибка при получении рекомендаций."
 
 # Функция для получения фильма дня от TMDB
 async def get_tmdb_trending_movie():
@@ -310,6 +311,7 @@ async def main():
     register_handlers_guess_movie(dp, user_states, user_history)
     register_handlers_thematic(dp)
     register_handlers_director_actor(dp)
+    register_handlers_company(dp, user_history, get_movie_recommendation)  # Регистрация обработчиков компании
     scheduler.add_job(send_daily_recommendation, trigger='cron', hour=9, minute=0)
     scheduler.start()
     logging.info("✅ ScreenFox запущен!")
