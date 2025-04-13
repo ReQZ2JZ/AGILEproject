@@ -1,11 +1,11 @@
 import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from openai import OpenAI
-import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import aiohttp
 from movie_guessing_game import register_handlers_guess_movie
@@ -14,19 +14,24 @@ from thematic_collections import register_handlers_thematic
 from director_actor_recommendations import register_handlers_director_actor
 from typing import Callable, Dict, Any, Awaitable
 
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+
+# Токены и ключи API
 BOT_TOKEN = "7847598451:AAH8B9-S2QPOznckDlKJZSoSpDs1SLphQ34"
 OPENROUTER_API_KEY = "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"
 TMDB_API_KEY = "941d2663b8c7da9e88d80d9ac8e48105"
 
-logging.basicConfig(level=logging.INFO)
-
+# Инициализация клиента OpenRouter
 client = OpenAI(api_key=OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1")
 
+# Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 scheduler = AsyncIOScheduler()
 
-user_states = {} 
+# Глобальные словари для хранения данных
+user_states = {}
 user_ids = set()
 user_language = {}
 user_subscriptions = set()
@@ -46,14 +51,16 @@ class UserHistoryMiddleware(BaseMiddleware):
         event: types.Message,
         data: Dict[str, Any]
     ) -> Any:
-        logging.info(f"Middleware called for user {event.from_user.id}")
+        logging.info(f"Middleware вызван для пользователя {event.from_user.id}")
         data['user_history'] = self.user_history
         return await handler(event, data)
 
+# Состояния FSM
 class UserStates(StatesGroup):
     AIChat = State()
     Tips = State()
 
+# Клавиатуры
 main_kb = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="🎬 Фильм дня")],
     [KeyboardButton(text="📚 Жанры"), KeyboardButton(text="💡 Подсказки")],
@@ -89,6 +96,7 @@ reaction_kb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="💾 В избранное", callback_data="add_favorite")]
 ])
 
+# Функция для получения рекомендации от ИИ
 async def get_movie_recommendation(query: str):
     lowered = query.lower()
     one_film_request = any(keyword in lowered for keyword in ["один фильм", "1 фильм", "что-то одно", "какой фильм", "в каком фильме", "что за фильм", "название фильма"])
@@ -97,6 +105,7 @@ async def get_movie_recommendation(query: str):
     else:
         prompt = f"Ты — эксперт по фильмам. Пользователь просит: '{query}'. Дай актуальные рекомендации."
     try:
+        logging.info(f"Отправка запроса к OpenRouter API: {query}")
         completion = client.chat.completions.create(
             model="openai/gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
@@ -104,33 +113,58 @@ async def get_movie_recommendation(query: str):
         )
         return completion.choices[0].message.content
     except Exception as e:
-        logging.error(f"Ошибка: {e}")
+        logging.error(f"Ошибка при запросе к OpenRouter: {e}")
         return f"😔 Произошла ошибка: {e}"
-    
+
+# Функция для получения фильма дня от TMDB
 async def get_tmdb_trending_movie():
     url = f"https://api.themoviedb.org/3/trending/movie/day?api_key={TMDB_API_KEY}&language=ru-RU"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            data = await response.json()
-            if data.get("results"):
-                movie = data["results"][0]
-                return f"🎬 {movie.get('title', 'Без названия')}\n\n{movie.get('overview', 'Описание отсутствует.')}", movie.get('title', 'Без названия')
-            return "😔 Не удалось получить фильм дня.", None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    logging.error(f"Ошибка TMDB API: Статус {response.status}, {await response.text()}")
+                    return "😔 Не удалось получить фильм дня.", None
+                data = await response.json()
+                logging.info(f"Ответ TMDB: {data}")
+                if data.get("results"):
+                    movie = data["results"][0]
+                    return (
+                        f"🎬 {movie.get('title', 'Без названия')}\n\n{movie.get('overview', 'Описание отсутствует.')}",
+                        movie.get('title', 'Без названия')
+                    )
+                logging.warning("TMDB API не вернул результатов")
+                return "😔 Фильмы не найдены.", None
+    except aiohttp.ClientError as e:
+        logging.error(f"Ошибка сети в запросе TMDB: {e}")
+        return "😔 Ошибка сети. Попробуйте позже.", None
+    except ValueError as e:
+        logging.error(f"Ошибка декодирования JSON в ответе TMDB: {e}")
+        return "😔 Ошибка обработки ответа сервера.", None
+    except Exception as e:
+        logging.error(f"Неизвестная ошибка в get_tmdb_trending_movie: {e}")
+        return "😔 Произошла неизвестная ошибка.", None
 
+# Обработчик команды /start
 @dp.message(CommandStart())
 async def start_handler(message: types.Message, state: FSMContext):
     await state.clear()
     user_ids.add(message.from_user.id)
     await message.answer("👋 Привет! Я ScreenFox. Выбери пункт из меню:", reply_markup=main_kb)
 
+# Обработчик "Фильм дня"
 @dp.message(F.text.lower() == "🎬 фильм дня")
 async def movie_of_the_day(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("🎬 Ищу фильм дня...")
     result, title = await get_tmdb_trending_movie()
-    user_history.setdefault(message.from_user.id, []).append(title)
+    if title:
+        if not isinstance(user_history.get(message.from_user.id), list):
+            user_history[message.from_user.id] = []
+        user_history[message.from_user.id].append(title)
     await message.answer(result, reply_markup=reaction_kb)
 
+# Обработчик "Подсказки"
 @dp.message(F.text.lower() == "💡 подсказки")
 async def tips_handler(message: types.Message, state: FSMContext):
     await state.clear()
@@ -141,9 +175,13 @@ async def tips_handler(message: types.Message, state: FSMContext):
 async def handle_tips(message: types.Message, state: FSMContext):
     await message.answer("🔎 Ищу рекомендации...")
     result = await get_movie_recommendation(message.text)
+    if not isinstance(user_history.get(message.from_user.id), list):
+        user_history[message.from_user.id] = []
+    user_history[message.from_user.id].append(f"Подсказка: {message.text}")
     await message.answer(result)
     await state.clear()
 
+# Обработчик "Жанры"
 @dp.message(F.text.lower() == "📚 жанры")
 async def genre_menu(message: types.Message, state: FSMContext):
     await state.clear()
@@ -154,10 +192,13 @@ async def genre_callback(callback: types.CallbackQuery):
     genre = callback.data.replace("genre_", "")
     await callback.message.answer(f"🔍 Ищу фильмы в жанре {genre}...")
     result = await get_movie_recommendation(f"Фильмы в жанре {genre}")
-    user_history.setdefault(callback.from_user.id, []).append(f"Жанр: {genre}")
+    if not isinstance(user_history.get(callback.from_user.id), list):
+        user_history[callback.from_user.id] = []
+    user_history[callback.from_user.id].append(f"Жанр: {genre}")
     await callback.message.answer(result, reply_markup=reaction_kb)
     await callback.answer()
 
+# Обработчик "Настройки"
 @dp.message(F.text.lower() == "⚙️ настройки")
 async def settings_handler(message: types.Message, state: FSMContext):
     await state.clear()
@@ -180,18 +221,25 @@ async def go_home_callback(callback: types.CallbackQuery):
     await callback.message.answer("🏠 Главное меню:", reply_markup=main_kb)
     await callback.answer()
 
+# Обработчик "Назад"
 @dp.message(F.text.lower() == "🔙 назад")
 async def back_handler(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("🏠 Главное меню:", reply_markup=main_kb)
 
+# Обработчик "История запросов"
 @dp.message(F.text.lower() == "🎞 история запросов")
 async def history_handler(message: types.Message, state: FSMContext):
     await state.clear()
     history = user_history.get(message.from_user.id, [])
-    text = "\n".join(history[-10:]) if history else "История пуста."
+    if not isinstance(history, list):
+        history = []
+        user_history[message.from_user.id] = history
+    filtered_history = [str(item) for item in history if item is not None]
+    text = "\n".join(filtered_history) if filtered_history else "История пуста."
     await message.answer(f"📜 История запросов:\n{text}")
 
+# Обработчик "Избранное"
 @dp.message(F.text.lower() == "⭐ избранное")
 async def favorites_handler(message: types.Message, state: FSMContext):
     await state.clear()
@@ -199,6 +247,7 @@ async def favorites_handler(message: types.Message, state: FSMContext):
     text = "\n".join(favorites) if favorites else "⭐ Ваш список избранного пуст."
     await message.answer(text)
 
+# Обработчик "Статистика"
 @dp.message(F.text.lower() == "📊 статистика")
 async def stats_handler(message: types.Message, state: FSMContext):
     await state.clear()
@@ -206,6 +255,7 @@ async def stats_handler(message: types.Message, state: FSMContext):
     favs = len(user_favorites.get(message.from_user.id, []))
     await message.answer(f"📊 Ваша статистика:\n👍 Лайков: {reactions['like']}\n👎 Дизлайков: {reactions['dislike']}\n⭐ Избранное: {favs}")
 
+# Обработчик "ИИ-чат"
 @dp.message(F.text.lower() == "🧠 ии-чат")
 async def ai_chat_prompt(message: types.Message, state: FSMContext):
     await state.clear()
@@ -216,9 +266,13 @@ async def ai_chat_prompt(message: types.Message, state: FSMContext):
 async def handle_ai_chat(message: types.Message, state: FSMContext):
     await message.answer("🔎 Ищу ответ от ИИ...")
     result = await get_movie_recommendation(message.text)
+    if not isinstance(user_history.get(message.from_user.id), list):
+        user_history[message.from_user.id] = []
+    user_history[message.from_user.id].append(f"ИИ-чат: {message.text}")
     await message.answer(result)
     await state.clear()
 
+# Обработчики реакций
 @dp.callback_query(F.data == "like")
 async def like_handler(callback: types.CallbackQuery):
     user_reactions.setdefault(callback.from_user.id, {"like": 0, "dislike": 0})["like"] += 1
@@ -235,25 +289,30 @@ async def favorite_handler(callback: types.CallbackQuery):
     user_favorites.setdefault(callback.from_user.id, []).append(message_text)
     await callback.answer("💾 Добавлено в избранное!")
 
+# Функция для отправки ежедневных рекомендаций
 async def send_daily_recommendation():
     if user_subscriptions:
         text, title = await get_tmdb_trending_movie()
         for uid in user_subscriptions:
             try:
-                user_history.setdefault(uid, []).append(title)
+                if title:
+                    if not isinstance(user_history.get(uid), list):
+                        user_history[uid] = []
+                    user_history[uid].append(title)
                 await bot.send_message(uid, f"🌅 Доброе утро! 🎬 Фильм дня от ScreenFox:\n\n{text}", reply_markup=reaction_kb)
             except Exception as e:
-                logging.warning(f"Не удалось отправить сообщение {uid}: {e}")
+                logging.warning(f"Не удалось отправить сообщение пользователю {uid}: {e}")
 
+# Главная функция
 async def main():
     dp.message.middleware(UserHistoryMiddleware(user_history))
     dp.include_router(watch_later_router)
-    # register_handlers_guess_movie(dp, user_states, user_history)  # Временно отключено
+    register_handlers_guess_movie(dp, user_states, user_history)
     register_handlers_thematic(dp)
     register_handlers_director_actor(dp)
     scheduler.add_job(send_daily_recommendation, trigger='cron', hour=9, minute=0)
     scheduler.start()
-    print("✅ ScreenFox запущен!")
+    logging.info("✅ ScreenFox запущен!")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
