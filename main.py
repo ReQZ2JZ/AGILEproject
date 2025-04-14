@@ -33,7 +33,6 @@ dp = Dispatcher()
 scheduler = AsyncIOScheduler()
 
 # Глобальные словари для хранения данных
-user_states = {}
 user_ids = set()
 user_language = {}
 user_subscriptions = set()
@@ -135,7 +134,7 @@ async def get_tmdb_trending_movie():
                 return "😔 Фильмы не найдены.", None
     except aiohttp.ClientError as e:
         logging.error(f"Ошибка сети в запросе TMDB: {e}")
-        return "😔 Ошибка сети. Попробуйте позже.", None
+        return "� toegang Ошибка сети. Попробуйте позже.", None
     except ValueError as e:
         logging.error(f"Ошибка декодирования JSON в ответе TMDB: {e}")
         return "😔 Ошибка обработки ответа сервера.", None
@@ -215,7 +214,9 @@ async def unsubscribe_callback(callback: types.CallbackQuery):
     await callback.answer()
 
 @dp.callback_query(F.data == "go_home")
-async def go_home_callback(callback: types.CallbackQuery):
+async def go_home_callback(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_reply_markup(reply_markup=None)  # Удаляем старую клавиатуру
     await callback.message.answer("🏠 Главное меню:", reply_markup=main_kb)
     await callback.answer()
 
@@ -305,11 +306,11 @@ async def send_daily_recommendation():
 async def main():
     dp.message.middleware(UserHistoryMiddleware(user_history))
     dp.include_router(watch_later_router)
-    register_handlers_guess_movie(dp, user_states, user_history)
+    register_handlers_guess_movie(dp, user_history, main_kb)  # Убрали user_states
     register_handlers_thematic(dp)
     register_handlers_director_actor(dp)
     register_handlers_company(dp, user_history, get_movie_recommendation)
-    register_handlers_movie_description(dp, get_movie_recommendation)  # Регистрация обработчиков описания фильма
+    register_handlers_movie_description(dp, get_movie_recommendation)
     scheduler.add_job(send_daily_recommendation, trigger='cron', hour=9, minute=0)
     scheduler.start()
     logging.info("✅ ScreenFox запущен!")
