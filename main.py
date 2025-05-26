@@ -21,8 +21,8 @@ logging.basicConfig(level=logging.INFO)
 
 # Токены и ключи API
 BOT_TOKEN = "7847598451:AAH8B9-S2QPOznckDlKJZSoSpDs1SLphQ34"
-OPENROUTER_API_KEY = "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"
-TMDB_API_KEY = "941d2663b8c7da9e88d80d9ac8e48105"
+OPENROUTER_API_KEY = "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"
+TMDB_API_KEY = "3f876aa3a5e0a0be8d73e4d350c95909"
 
 # Инициализация клиента OpenRouter
 client = OpenAI(api_key=OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1")
